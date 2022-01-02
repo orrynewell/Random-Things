@@ -61,6 +61,7 @@ def iter_row_method(df, country_mission):
                 if mission in mission_compare_standardized:
                     df.iloc[index, df.columns.get_loc('Bin')] = key
                     break
+            df.loc[(df['country'] == key) & (df['Bin'] == '0'), 'Bin'] = key
     print("-----------------Iter Row Dataframe-----------------\n{}".format(df))
     print("------Makes the Updates at small scale probably-----\n")
 
