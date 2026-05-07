@@ -29,13 +29,34 @@ class MockBroker {
   private subscribers = new Map<TopicName, Set<ConsumerHandler>>();
 
   produce<T>(topic: TopicName, key: string, value: T): Message<T> {
+    return this.append(topic, key, value, Date.now());
+  }
+
+  // Same as `produce` but with a caller-supplied timestamp. Used by the
+  // history seeders to backdate messages. Real Kafka assigns offsets in
+  // append order regardless of producer timestamp, so we do the same.
+  produceAt<T>(
+    topic: TopicName,
+    key: string,
+    value: T,
+    timestamp: number,
+  ): Message<T> {
+    return this.append(topic, key, value, timestamp);
+  }
+
+  private append<T>(
+    topic: TopicName,
+    key: string,
+    value: T,
+    timestamp: number,
+  ): Message<T> {
     const partitions = this.getOrCreateTopic(topic);
     const partition = partitions.get(key) ?? { messages: [], nextOffset: 0 };
     const message: Message<T> = {
       topic,
       key,
       value,
-      timestamp: Date.now(),
+      timestamp,
       offset: partition.nextOffset,
     };
     partition.messages.push(message);

@@ -1,18 +1,39 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AlertBanner } from "./components/AlertBanner";
 import { KafkaPanel } from "./components/KafkaPanel";
+import { TimeRangeSelector } from "./components/TimeRangeSelector";
 import { ZonePanel } from "./components/ZonePanel";
 import { ZoneSummary } from "./components/ZoneSummary";
 import { LOCATION } from "./config";
 import { startAllProducers } from "./producers";
-import { startConsumer } from "./state/store";
+import { seedHistory } from "./seed";
+import {
+  beginBulkIngest,
+  endBulkIngest,
+  startConsumer,
+} from "./state/store";
 
 export default function App() {
+  const [bootStatus, setBootStatus] = useState<"seeding" | "live">("seeding");
+
   useEffect(() => {
+    let stopProducers: (() => void) | null = null;
+    beginBulkIngest();
     const stopConsumer = startConsumer();
-    const stopProducers = startAllProducers();
+
+    seedHistory()
+      .catch(() => {
+        // Sensor seed is sync and can't fail; weather seed already falls
+        // back to synthetic. Catch only to keep React from logging.
+      })
+      .finally(() => {
+        endBulkIngest();
+        stopProducers = startAllProducers();
+        setBootStatus("live");
+      });
+
     return () => {
-      stopProducers();
+      stopProducers?.();
       stopConsumer();
     };
   }, []);
@@ -25,17 +46,22 @@ export default function App() {
             🌾 Homestead Monitor
           </h1>
           <p className="text-sm text-slate-400">
-            {LOCATION.name} · mock device data · real weather from Open-Meteo
+            {LOCATION.name} · mock device data · weather from Open-Meteo
+            (live + 1y archive)
           </p>
         </div>
-        <div className="text-xs text-slate-500">
-          Streaming through an in-process Kafka stand-in.{" "}
-          <a
-            href="https://github.com/orrynewell/random-things/blob/main/KAFKA_NOTES.md"
-            className="underline hover:text-slate-300"
+        <div className="flex flex-wrap items-center gap-3">
+          <TimeRangeSelector />
+          <span
+            className={
+              "text-xs " +
+              (bootStatus === "seeding"
+                ? "text-amber-300"
+                : "text-emerald-300")
+            }
           >
-            Why?
-          </a>
+            {bootStatus === "seeding" ? "loading history…" : "live"}
+          </span>
         </div>
       </header>
 

@@ -1,5 +1,6 @@
 import { DEVICES, PRODUCE_INTERVAL_MS } from "../config";
 import { broker } from "../kafka/broker";
+import { latestValue } from "./latest";
 
 export interface HiveReading {
   internalTempF: number;
@@ -17,12 +18,15 @@ function jitter(prev: number, delta: number, min: number, max: number) {
 export function startHiveProducers(): () => void {
   const state = new Map<string, HiveReading>();
   for (const dev of DEVICES.hives) {
-    state.set(dev.id, {
-      internalTempF: 94,
-      humidityPct: 55,
-      weightLbs: 60,
-      soundDb: 48,
-    });
+    state.set(
+      dev.id,
+      latestValue<HiveReading>("hive.telemetry", dev.id, {
+        internalTempF: 94,
+        humidityPct: 55,
+        weightLbs: 60,
+        soundDb: 48,
+      }),
+    );
   }
 
   const interval = window.setInterval(() => {

@@ -1,5 +1,6 @@
 import { DEVICES, PRODUCE_INTERVAL_MS } from "../config";
 import { broker } from "../kafka/broker";
+import { latestValue } from "./latest";
 
 // Two topics for the garden so a soil sensor and an air sensor can scale
 // independently — exactly how you'd carve up Kafka topics in production.
@@ -24,9 +25,22 @@ export function startGardenProducers(): () => void {
   const soilState = new Map<string, GardenSoilReading>();
   const airState = new Map<string, GardenAirReading>();
 
+  // Pick up where the seeded history left off so live ticks don't snap.
   for (const dev of DEVICES.garden) {
-    soilState.set(dev.id, { moisturePct: 45, soilTempF: 65 });
-    airState.set(dev.id, { airTempF: 72, humidityPct: 55 });
+    soilState.set(
+      dev.id,
+      latestValue<GardenSoilReading>("garden.soil", dev.id, {
+        moisturePct: 45,
+        soilTempF: 65,
+      }),
+    );
+    airState.set(
+      dev.id,
+      latestValue<GardenAirReading>("garden.air", dev.id, {
+        airTempF: 72,
+        humidityPct: 55,
+      }),
+    );
   }
 
   const interval = window.setInterval(() => {
