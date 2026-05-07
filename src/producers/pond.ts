@@ -1,5 +1,6 @@
 import { DEVICES, PRODUCE_INTERVAL_MS } from "../config";
 import { broker } from "../kafka/broker";
+import { latestValue } from "./latest";
 
 export interface PondReading {
   waterTempF: number;
@@ -15,7 +16,14 @@ function jitter(prev: number, delta: number, min: number, max: number) {
 export function startPondProducer(): () => void {
   const state = new Map<string, PondReading>();
   for (const dev of DEVICES.pond) {
-    state.set(dev.id, { waterTempF: 68, levelInches: 2, ph: 7.2 });
+    state.set(
+      dev.id,
+      latestValue<PondReading>("pond.water", dev.id, {
+        waterTempF: 68,
+        levelInches: 2,
+        ph: 7.2,
+      }),
+    );
   }
 
   const interval = window.setInterval(() => {

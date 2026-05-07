@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_RANGE, type TimeRangeKey } from "../config";
 import { broker } from "../kafka/broker";
 import type { Message, TopicName } from "../kafka/types";
 import {
@@ -42,6 +43,8 @@ interface State {
   history: Map<string, MetricPoint[]>; // metricKey -> rolling points
   thresholdOverrides: Record<string, Threshold>;
   alerts: Map<string, Alert>; // `${metricKey}|${deviceId}`
+  timeRange: TimeRangeKey;
+  seedingComplete: boolean;
 }
 
 const state: State = {
@@ -49,6 +52,8 @@ const state: State = {
   history: new Map(),
   thresholdOverrides: loadThresholdOverrides(),
   alerts: new Map(),
+  timeRange: DEFAULT_TIME_RANGE,
+  seedingComplete: false,
 };
 
 const listeners = new Set<() => void>();
@@ -62,6 +67,8 @@ function buildSnapshot() {
     history: state.history,
     thresholdOverrides: state.thresholdOverrides,
     alerts: state.alerts,
+    timeRange: state.timeRange,
+    seedingComplete: state.seedingComplete,
   };
 }
 
@@ -71,7 +78,10 @@ function emit() {
   for (const l of listeners) l();
 }
 
-const HISTORY_POINTS = 120;
+// Cap each metric's history at enough to cover a full year of hourly seeded
+// data plus thousands of live ticks. Charts downsample for display so the
+// upper bound is not load-bearing for render perf.
+const HISTORY_POINTS = 25_000;
 
 function recordHistory(metricKey: string, point: MetricPoint) {
   const arr = state.history.get(metricKey) ?? [];
@@ -131,6 +141,22 @@ const TOPIC_METRICS: Record<TopicName, string[]> = {
   ],
 };
 
+// While `bulkMode` is true (during the initial seed) we skip per-message
+// alert re-evaluation and React emits. The caller flushes once at the end
+// via `endBulkIngest`. Without this, seeding tens of thousands of points
+// would trigger that many re-renders.
+let bulkMode = false;
+
+export function beginBulkIngest() {
+  bulkMode = true;
+}
+
+export function endBulkIngest() {
+  bulkMode = false;
+  for (const m of METRICS) reevaluateAlertsFor(m.key);
+  emit();
+}
+
 function ingest(msg: Message) {
   const value = msg.value as Record<string, number>;
   state.devices.set(`${msg.topic}|${msg.key}`, {
@@ -145,9 +171,9 @@ function ingest(msg: Message) {
     if (typeof v !== "number" || Number.isNaN(v)) continue;
     const metricKey = `${msg.topic}.${field}`;
     recordHistory(metricKey, { t: msg.timestamp, v, deviceId: msg.key });
-    reevaluateAlertsFor(metricKey);
+    if (!bulkMode) reevaluateAlertsFor(metricKey);
   }
-  emit();
+  if (!bulkMode) emit();
 }
 
 export function startConsumer(): () => void {
@@ -210,4 +236,18 @@ export function zoneSeverity(zone: string): Severity {
     }
   }
   return s;
+}
+
+// Time range -------------------------------------------------------------
+
+export function setTimeRange(range: TimeRangeKey) {
+  if (state.timeRange === range) return;
+  state.timeRange = range;
+  emit();
+}
+
+export function markSeedingComplete() {
+  if (state.seedingComplete) return;
+  state.seedingComplete = true;
+  emit();
 }
